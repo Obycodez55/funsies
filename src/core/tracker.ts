@@ -205,11 +205,7 @@ export class HeadTracker {
           x: lerp(this.smoothedPose.x, rawPose.x, TRACKER_SMOOTHING_ALPHA),
           y: lerp(this.smoothedPose.y, rawPose.y, TRACKER_SMOOTHING_ALPHA),
           z: lerp(this.smoothedPose.z, rawPose.z, TRACKER_SMOOTHING_ALPHA),
-          confidence: lerp(
-            this.smoothedPose.confidence,
-            rawPose.confidence,
-            TRACKER_SMOOTHING_ALPHA,
-          ),
+          confidence: rawPose.confidence,
         }
       : rawPose;
 
