@@ -54,3 +54,17 @@ export const SPACE_WORLD_CONFIG = {
 } as const;
 
 export const BLOOM_RESOLUTION_SCALE = 0.5;
+
+export const MOON_ORBIT_RADIUS = 14;
+export const MOON_ORBIT_PERIOD = 90;
+
+export const COMET_INTERVAL_MIN = 60;
+export const COMET_INTERVAL_MAX = 90;
+
+export const SUPERNOVA_INTERVAL_MIN = 120;
+export const SUPERNOVA_INTERVAL_MAX = 180;
+
+export const HEAD_STILL_DURATION = 8;
+
+export const WARP_INTERVAL_MIN = 4;
+export const WARP_INTERVAL_MAX = 7;
