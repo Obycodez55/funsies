@@ -11,7 +11,6 @@ import {
   MEDIAPIPE_WASM_BASE_URI,
   MIN_HEAD_Z_CM,
   TRACKER_BASELINE_EYE_ALPHA,
-  TRACKER_CONFIDENCE_THRESHOLD,
   TRACKER_DEPTH_RESPONSE_GAIN,
   TRACKER_SMOOTHING_ALPHA,
   TRACKER_TARGET_FPS,
@@ -50,9 +49,18 @@ export class HeadTracker {
       return;
     }
 
-    this.setStatus("initializing");
-    await this.initVideo();
-    await this.initLandmarker();
+    try {
+      this.setStatus("initializing");
+      await this.initVideo();
+      await this.initLandmarker();
+    } catch {
+      this.dispose();
+      if (this.frameState.trackerStatus !== "permission-denied") {
+        this.setStatus("error");
+        throw new Error("Face landmarker failed to load.");
+      }
+      throw new Error("Camera permission denied.");
+    }
 
     const tick = (): void => {
       this.processFrame();
@@ -181,10 +189,10 @@ export class HeadTracker {
     }
 
     const rawPose = this.getRawHeadPose(result, faceCount);
-    if (!rawPose || rawPose.confidence < TRACKER_CONFIDENCE_THRESHOLD) {
+    if (!rawPose) {
       this.baselineEyeDistance = null;
       this.frameState = {
-        rawHeadPose: rawPose,
+        rawHeadPose: null,
         headPose: null,
         trackerStatus: "no-face",
       };

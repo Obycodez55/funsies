@@ -9,7 +9,6 @@ export type AppMode = (typeof APP_MODE)[keyof typeof APP_MODE];
 export const DEFAULT_MODE: AppMode = APP_MODE.TEST_WORLD;
 
 export const TRACKER_SMOOTHING_ALPHA = 0.28;
-export const TRACKER_CONFIDENCE_THRESHOLD = 0.45;
 export const TRACKER_TARGET_FPS = 45;
 export const TRACKER_BASELINE_EYE_ALPHA = 0.04;
 export const TRACKER_DEPTH_RESPONSE_GAIN = 900;

@@ -80,6 +80,7 @@ export const createTestWorld = (): SceneModule => {
         sceneCtx.scene.remove(grid);
       }
       if (axes) {
+        axes.dispose();
         sceneCtx.scene.remove(axes);
       }
       if (ambient) {

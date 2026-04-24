@@ -34,8 +34,9 @@ export const updateCamera = (
 
   const x = (motion.invertX ? -activeHead.x : activeHead.x) * motion.sensitivityX;
   const y = (motion.invertY ? -activeHead.y : activeHead.y) * motion.sensitivityY;
-  const rawZ = motion.invertZ ? -activeHead.z : activeHead.z;
-  const z = clamp(rawZ * motion.sensitivityZ, MIN_HEAD_Z_CM, MAX_HEAD_Z_CM);
+  const zDelta = activeHead.z - DEFAULT_HEAD_Z_CM;
+  const tunedDelta = (motion.invertZ ? -zDelta : zDelta) * motion.sensitivityZ;
+  const z = clamp(DEFAULT_HEAD_Z_CM + tunedDelta, MIN_HEAD_Z_CM, MAX_HEAD_Z_CM);
   const halfW = screenDimensions.width / 2;
   const halfH = screenDimensions.height / 2;
 
@@ -54,6 +55,6 @@ export const updateCamera = (
   );
   camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
   camera.position.set(x, y, z);
-  camera.lookAt(0, 0, 0);
+  camera.lookAt(x, y, z - 1);
   camera.updateMatrixWorld();
 };
