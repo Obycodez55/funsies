@@ -44,6 +44,7 @@ export const MEDIAPIPE_WASM_BASE_URI =
 export const SPACE_WORLD_CONFIG = {
   deepStarCount: 9000,
   shallowStarCount: 1800,
+  warmStarCount: 700,
   deepStarZMin: -320,
   deepStarZMax: -70,
   shallowStarZMin: -45,
