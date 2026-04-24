@@ -34,10 +34,17 @@ export interface ScreenDimensionsCm {
   height: number;
 }
 
+export interface BloomProfile {
+  strength: number;
+  radius: number;
+  threshold: number;
+}
+
 export interface AppContext {
   scene: Scene;
   camera: PerspectiveCamera;
   renderer: WebGLRenderer;
+  setBloom(profile: BloomProfile | null): void;
 }
 
 export interface SceneModule {

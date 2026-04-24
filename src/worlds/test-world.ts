@@ -22,6 +22,7 @@ export const createTestWorld = (): SceneModule => {
   return {
     init(ctx) {
       sceneCtx = ctx;
+      ctx.setBloom(null);
       ctx.scene.background = new Color(0x080d16);
 
       ambient = new AmbientLight(0xffffff, 0.35);
@@ -64,6 +65,7 @@ export const createTestWorld = (): SceneModule => {
       if (!sceneCtx) {
         return;
       }
+      sceneCtx.setBloom(null);
 
       if (cube) {
         cube.geometry.dispose();

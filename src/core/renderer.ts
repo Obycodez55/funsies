@@ -1,4 +1,9 @@
 import { PerspectiveCamera, Scene, WebGLRenderer } from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { Vector2 } from "three";
+import { BLOOM_RESOLUTION_SCALE } from "../shared/constants";
 import type { AppContext, ViewportSize } from "../shared/types";
 
 interface RendererRuntime {
@@ -16,6 +21,12 @@ export const createRendererRuntime = (container: HTMLElement): RendererRuntime =
   const camera = new PerspectiveCamera(55, 1, 0.1, 500);
   const renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setClearColor(0x06090f);
+  const composer = new EffectComposer(renderer);
+  const renderPass = new RenderPass(scene, camera);
+  const bloomPass = new UnrealBloomPass(new Vector2(1, 1), 0, 0, 1);
+  bloomPass.enabled = false;
+  composer.addPass(renderPass);
+  composer.addPass(bloomPass);
 
   container.appendChild(renderer.domElement);
 
@@ -42,6 +53,11 @@ export const createRendererRuntime = (container: HTMLElement): RendererRuntime =
     camera.updateProjectionMatrix();
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
+    composer.setPixelRatio(dpr);
+    composer.setSize(
+      Math.max(1, Math.floor(width * BLOOM_RESOLUTION_SCALE)),
+      Math.max(1, Math.floor(height * BLOOM_RESOLUTION_SCALE)),
+    );
   };
 
   const loop = (ts: number): void => {
@@ -49,7 +65,7 @@ export const createRendererRuntime = (container: HTMLElement): RendererRuntime =
     lastTs = ts;
 
     frameHandler?.(dt);
-    renderer.render(scene, camera);
+    composer.render();
     rafId = window.requestAnimationFrame(loop);
   };
 
@@ -60,8 +76,20 @@ export const createRendererRuntime = (container: HTMLElement): RendererRuntime =
   window.addEventListener("resize", handleResize);
   syncSize();
 
+  const setBloom: AppContext["setBloom"] = (profile) => {
+    if (!profile) {
+      bloomPass.enabled = false;
+      return;
+    }
+
+    bloomPass.enabled = true;
+    bloomPass.strength = profile.strength;
+    bloomPass.radius = profile.radius;
+    bloomPass.threshold = profile.threshold;
+  };
+
   return {
-    ctx: { scene, camera, renderer },
+    ctx: { scene, camera, renderer, setBloom },
     size,
     setFrameHandler(handler) {
       frameHandler = handler;
@@ -85,6 +113,7 @@ export const createRendererRuntime = (container: HTMLElement): RendererRuntime =
     dispose() {
       this.stop();
       window.removeEventListener("resize", handleResize);
+      composer.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     },

@@ -51,3 +51,5 @@ export const SPACE_WORLD_CONFIG = {
   planetNearZ: -80,
   planetFarZ: -220,
 } as const;
+
+export const BLOOM_RESOLUTION_SCALE = 0.5;
