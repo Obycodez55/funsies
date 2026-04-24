@@ -47,55 +47,72 @@ export const createSpaceAudio = (): SpaceAudioController => {
   masterGain.gain.value = 0.0;
   masterGain.connect(context.destination);
 
-  // Layer 1: 45 Hz sub-bass
+  // Layer 1: soft warmth (light, not cinematic sub-rumble)
   const subOsc = context.createOscillator();
   subOsc.type = "sine";
-  subOsc.frequency.value = 45;
+  subOsc.frequency.value = 72;
   const subGain = context.createGain();
-  subGain.gain.value = 0.07;
+  subGain.gain.value = 0.02;
   subOsc.connect(subGain);
   subGain.connect(masterGain);
 
-  // Layer 2: 110 Hz breathing mid — gain oscillates slowly via update()
+  // Layer 2: friendly “root” — triangle reads softer than sine here
   const midOsc = context.createOscillator();
-  midOsc.type = "sine";
-  midOsc.frequency.value = 110;
+  midOsc.type = "triangle";
+  midOsc.frequency.value = 220;
   const midGain = context.createGain();
-  midGain.gain.value = 0.025;
+  midGain.gain.value = 0.028;
   midOsc.connect(midGain);
   midGain.connect(masterGain);
 
-  // Layer 3: 900 Hz shimmer through bandpass
+  // Layer 2b: perfect fifth for airy major color (very quiet)
+  const fifthOsc = context.createOscillator();
+  fifthOsc.type = "sine";
+  fifthOsc.frequency.value = 330;
+  const fifthGain = context.createGain();
+  fifthGain.gain.value = 0.01;
+  fifthOsc.connect(fifthGain);
+  fifthGain.connect(masterGain);
+
+  // Layer 3: wide sparkly band (lower Q = less “horror whistle”)
   const shimOsc = context.createOscillator();
   shimOsc.type = "triangle";
-  shimOsc.frequency.value = 900;
+  shimOsc.frequency.value = 1400;
   const shimGain = context.createGain();
-  shimGain.gain.value = 0.015;
+  shimGain.gain.value = 0.014;
   const shimFilter = context.createBiquadFilter();
   shimFilter.type = "bandpass";
-  shimFilter.frequency.value = 900;
-  shimFilter.Q.value = 18;
+  shimFilter.frequency.value = 1200;
+  shimFilter.Q.value = 4.5;
   shimOsc.connect(shimFilter);
   shimFilter.connect(shimGain);
   shimGain.connect(masterGain);
-
-  subOsc.start();
-  midOsc.start();
-  shimOsc.start();
 
   let disposed = false;
   let phase = 0;
   let listenersAttached = false;
   let started = false;
+  let oscillatorsStarted = false;
+
+  const MASTER_TARGET = 0.34;
   const eventTypes: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart"];
 
   const startMaster = (): void => {
-    if (disposed || started) return;
+    if (disposed || started) {
+      return;
+    }
     started = true;
     const now = context.currentTime;
+    if (!oscillatorsStarted) {
+      oscillatorsStarted = true;
+      subOsc.start(now);
+      midOsc.start(now);
+      fifthOsc.start(now);
+      shimOsc.start(now);
+    }
     masterGain.gain.cancelScheduledValues(now);
     masterGain.gain.setValueAtTime(masterGain.gain.value, now);
-    masterGain.gain.linearRampToValueAtTime(0.16, now + 0.8);
+    masterGain.gain.linearRampToValueAtTime(MASTER_TARGET, now + 0.65);
   };
 
   const clearInteractionListeners = (): void => {
@@ -110,14 +127,14 @@ export const createSpaceAudio = (): SpaceAudioController => {
       clearInteractionListeners();
       return;
     }
-    void context.resume().then(() => {
-      if (disposed) return;
-      startMaster();
-      const now = context.currentTime;
-      // Slightly reinforce post-resume transition in case browser paused timers.
-      masterGain.gain.setTargetAtTime(0.16, now, 0.25);
-      clearInteractionListeners();
-    });
+    void context
+      .resume()
+      .then(() => {
+        if (disposed) return;
+        startMaster();
+        clearInteractionListeners();
+      })
+      .catch(() => {});
   };
 
   return {
@@ -139,11 +156,15 @@ export const createSpaceAudio = (): SpaceAudioController => {
       if (disposed || context.state !== "running") return;
       phase += dt;
       const now = context.currentTime;
-      // Mid layer breathing: 0.015–0.04 at ~0.15 Hz
-      const breath = 0.0275 + 0.0125 * Math.sin(phase * 0.15 * Math.PI * 2);
-      midGain.gain.setTargetAtTime(breath, now, 0.4);
-      // Shimmer frequency flutter
-      shimOsc.frequency.setTargetAtTime(895 + 10 * Math.sin(phase * 0.7), now, 0.2);
+      // Light “bounce” on the root — a bit quicker than the old slow swell
+      const breath = 0.02 + 0.012 * Math.sin(phase * 0.32 * Math.PI * 2);
+      midGain.gain.setTargetAtTime(breath, now, 0.35);
+      // Gentle shimmer on the fifth
+      const fifthBreath = 0.006 + 0.005 * Math.sin(phase * 0.41 * Math.PI * 2 + 1.1);
+      fifthGain.gain.setTargetAtTime(fifthBreath, now, 0.45);
+      // Sparkly filter motion (carrier + filter peak wander)
+      shimOsc.frequency.setTargetAtTime(1320 + 120 * Math.sin(phase * 2.9), now, 0.18);
+      shimFilter.frequency.setTargetAtTime(1050 + 220 * Math.sin(phase * 2.1 + 0.4), now, 0.25);
     },
 
     createEventPanner(): EventPanner {
@@ -178,37 +199,40 @@ export const createSpaceAudio = (): SpaceAudioController => {
 
           if (type === "comet") {
             osc.type = "triangle";
-            osc.frequency.value = 220;
+            osc.frequency.setValueAtTime(520, now);
+            osc.frequency.exponentialRampToValueAtTime(260, now + 0.32);
             burstGain.gain.setValueAtTime(0, now);
-            burstGain.gain.linearRampToValueAtTime(0.12, now + 0.15);
-            burstGain.gain.linearRampToValueAtTime(0, now + 0.8);
+            burstGain.gain.linearRampToValueAtTime(0.065, now + 0.07);
+            burstGain.gain.linearRampToValueAtTime(0, now + 0.4);
             osc.start(now);
-            osc.stop(now + 0.85);
+            osc.stop(now + 0.44);
           } else if (type === "supernova") {
-            osc.type = "sine";
-            osc.frequency.value = 55;
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(200, now);
+            osc.frequency.exponentialRampToValueAtTime(720, now + 0.28);
             burstGain.gain.setValueAtTime(0, now);
-            burstGain.gain.linearRampToValueAtTime(0.2, now + 0.3);
-            burstGain.gain.linearRampToValueAtTime(0, now + 3.0);
+            burstGain.gain.linearRampToValueAtTime(0.09, now + 0.1);
+            burstGain.gain.linearRampToValueAtTime(0, now + 0.48);
             osc.start(now);
-            osc.stop(now + 3.1);
+            osc.stop(now + 0.52);
           } else if (type === "shootingStar") {
             osc.type = "sine";
-            osc.frequency.value = 800;
+            osc.frequency.setValueAtTime(880, now);
+            osc.frequency.exponentialRampToValueAtTime(2200, now + 0.1);
             burstGain.gain.setValueAtTime(0, now);
-            burstGain.gain.linearRampToValueAtTime(0.08, now + 0.05);
-            burstGain.gain.linearRampToValueAtTime(0, now + 0.35);
+            burstGain.gain.linearRampToValueAtTime(0.055, now + 0.035);
+            burstGain.gain.linearRampToValueAtTime(0, now + 0.16);
             osc.start(now);
-            osc.stop(now + 0.4);
+            osc.stop(now + 0.2);
           } else {
-            osc.type = "sawtooth";
-            osc.frequency.setValueAtTime(1400, now);
-            osc.frequency.exponentialRampToValueAtTime(520, now + 0.28);
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(640, now);
+            osc.frequency.exponentialRampToValueAtTime(360, now + 0.18);
             burstGain.gain.setValueAtTime(0, now);
-            burstGain.gain.linearRampToValueAtTime(0.1, now + 0.03);
-            burstGain.gain.linearRampToValueAtTime(0, now + 0.3);
+            burstGain.gain.linearRampToValueAtTime(0.06, now + 0.04);
+            burstGain.gain.linearRampToValueAtTime(0, now + 0.22);
             osc.start(now);
-            osc.stop(now + 0.32);
+            osc.stop(now + 0.26);
           }
         },
         dispose() {
@@ -226,14 +250,15 @@ export const createSpaceAudio = (): SpaceAudioController => {
       const osc = context.createOscillator();
       const g = context.createGain();
       osc.type = "sine";
-      osc.frequency.value = 45;
+      osc.frequency.setValueAtTime(260, now);
+      osc.frequency.exponentialRampToValueAtTime(780, now + 0.24);
       g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(0.3, now + 0.1);
-      g.gain.linearRampToValueAtTime(0, now + 0.8);
+      g.gain.linearRampToValueAtTime(0.12, now + 0.05);
+      g.gain.linearRampToValueAtTime(0, now + 0.42);
       osc.connect(g);
       g.connect(masterGain);
       osc.start(now);
-      osc.stop(now + 0.85);
+      osc.stop(now + 0.46);
     },
 
     dispose() {
@@ -243,14 +268,19 @@ export const createSpaceAudio = (): SpaceAudioController => {
       const now = context.currentTime;
       masterGain.gain.cancelScheduledValues(now);
       masterGain.gain.linearRampToValueAtTime(0.0, now + 0.2);
-      subOsc.stop(now + 0.25);
-      midOsc.stop(now + 0.25);
-      shimOsc.stop(now + 0.25);
+      if (oscillatorsStarted) {
+        subOsc.stop(now + 0.25);
+        midOsc.stop(now + 0.25);
+        fifthOsc.stop(now + 0.25);
+        shimOsc.stop(now + 0.25);
+      }
       subOsc.disconnect();
       midOsc.disconnect();
+      fifthOsc.disconnect();
       shimOsc.disconnect();
       subGain.disconnect();
       midGain.disconnect();
+      fifthGain.disconnect();
       shimGain.disconnect();
       shimFilter.disconnect();
       masterGain.disconnect();
