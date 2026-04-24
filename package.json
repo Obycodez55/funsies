@@ -1,0 +1,33 @@
+{
+  "name": "funsies",
+  "version": "0.1.0",
+  "description": "Head-tracked 3D worlds and motion game",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Obycodez55/funsies.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Obycodez55/funsies/issues"
+  },
+  "homepage": "https://github.com/Obycodez55/funsies#readme",
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.34",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.184.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
+  }
+}
