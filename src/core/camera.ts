@@ -1,5 +1,8 @@
 import { PerspectiveCamera, Vector3 } from "three";
 import {
+  HEAD_DEADZONE_X,
+  HEAD_DEADZONE_Y,
+  HEAD_DEADZONE_Z,
   DEFAULT_HEAD_Z_CM,
   HEAD_X_RANGE,
   HEAD_Y_RANGE,
@@ -22,6 +25,11 @@ interface MotionTuning {
 const _right = new Vector3();
 const _up = new Vector3();
 const _fwd = new Vector3();
+
+const applyDeadzone = (value: number, deadzone: number): number => {
+  if (Math.abs(value) <= deadzone) return 0;
+  return value > 0 ? value - deadzone : value + deadzone;
+};
 
 /**
  * Applies head-tracking to the camera.
@@ -55,20 +63,23 @@ export const updateCamera = (
   };
 
   // Head offset in screen-space scene units
-  const x = clamp(
+  const xRaw = clamp(
     (motion.invertX ? -activeHead.x : activeHead.x) * motion.sensitivityX,
     -HEAD_X_RANGE,
     HEAD_X_RANGE,
   );
-  const y = clamp(
+  const yRaw = clamp(
     (motion.invertY ? -activeHead.y : activeHead.y) * motion.sensitivityY,
     -HEAD_Y_RANGE,
     HEAD_Y_RANGE,
   );
+  const x = applyDeadzone(xRaw, HEAD_DEADZONE_X);
+  const y = applyDeadzone(yRaw, HEAD_DEADZONE_Y);
 
   // Head Z: distance from physical screen (used for frustum depth, not world position)
   const zDelta = activeHead.z - DEFAULT_HEAD_Z_CM;
-  const tunedDelta = (motion.invertZ ? -zDelta : zDelta) * motion.sensitivityZ;
+  const tunedDeltaRaw = (motion.invertZ ? -zDelta : zDelta) * motion.sensitivityZ;
+  const tunedDelta = applyDeadzone(tunedDeltaRaw, HEAD_DEADZONE_Z);
   const headZ = clamp(DEFAULT_HEAD_Z_CM + tunedDelta, MIN_HEAD_Z_CM, MAX_HEAD_Z_CM);
 
   // Extract the camera's local right / up axes from its current orientation.
