@@ -33,6 +33,12 @@ const nullEventPanner: EventPanner = {
 
 export const createSpaceAudio = (): SpaceAudioController => {
   const context = createAudioContext();
+  const ambientTrack = new Audio("/audio/ambient.m4a");
+  ambientTrack.loop = true;
+  ambientTrack.preload = "auto";
+  ambientTrack.crossOrigin = "anonymous";
+  ambientTrack.volume = 0.42;
+
   if (!context) {
     return {
       resumeOnInteraction() {},
@@ -46,6 +52,11 @@ export const createSpaceAudio = (): SpaceAudioController => {
   const masterGain = context.createGain();
   masterGain.gain.value = 0.0;
   masterGain.connect(context.destination);
+  const ambientSource = context.createMediaElementSource(ambientTrack);
+  const ambientGain = context.createGain();
+  ambientGain.gain.value = 1.0;
+  ambientSource.connect(ambientGain);
+  ambientGain.connect(masterGain);
 
   // Layer 1: soft warmth (light, not cinematic sub-rumble)
   const subOsc = context.createOscillator();
@@ -93,6 +104,7 @@ export const createSpaceAudio = (): SpaceAudioController => {
   let listenersAttached = false;
   let started = false;
   let oscillatorsStarted = false;
+  let ambientStarted = false;
 
   const MASTER_TARGET = 0.34;
   const eventTypes: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart"];
@@ -109,6 +121,10 @@ export const createSpaceAudio = (): SpaceAudioController => {
       midOsc.start(now);
       fifthOsc.start(now);
       shimOsc.start(now);
+    }
+    if (!ambientStarted) {
+      ambientStarted = true;
+      void ambientTrack.play().catch(() => {});
     }
     masterGain.gain.cancelScheduledValues(now);
     masterGain.gain.setValueAtTime(masterGain.gain.value, now);
@@ -176,7 +192,7 @@ export const createSpaceAudio = (): SpaceAudioController => {
       panner.maxDistance = 200;
       panner.rolloffFactor = 0.5;
       const eventGain = context.createGain();
-      eventGain.gain.value = 0;
+      eventGain.gain.value = 1;
       panner.connect(eventGain);
       eventGain.connect(masterGain);
 
@@ -265,6 +281,8 @@ export const createSpaceAudio = (): SpaceAudioController => {
       if (disposed) return;
       disposed = true;
       eventTypes.forEach((type) => window.removeEventListener(type, resume));
+      ambientTrack.pause();
+      ambientTrack.currentTime = 0;
       const now = context.currentTime;
       masterGain.gain.cancelScheduledValues(now);
       masterGain.gain.linearRampToValueAtTime(0.0, now + 0.2);
@@ -283,6 +301,8 @@ export const createSpaceAudio = (): SpaceAudioController => {
       fifthGain.disconnect();
       shimGain.disconnect();
       shimFilter.disconnect();
+      ambientGain.disconnect();
+      ambientSource.disconnect();
       masterGain.disconnect();
       void context.close();
     },
