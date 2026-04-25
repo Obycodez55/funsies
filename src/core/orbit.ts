@@ -29,8 +29,8 @@ interface OrbitOptions {
 const DRAG_SENSITIVITY = 0.0048; // radians per pixel
 const INERTIA_DECAY = 4.2;       // higher = snappier stop
 const DOLLY_DECAY = 5.0;
-const MIN_RADIUS = 18;
-const MAX_RADIUS = 380;
+const MIN_RADIUS = 20;
+const MAX_RADIUS = 400;
 const MAX_ELEVATION = Math.PI / 2 - 0.01;
 const MIN_ELEVATION = -(Math.PI / 2 - 0.01);
 

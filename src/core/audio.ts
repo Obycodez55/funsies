@@ -38,6 +38,14 @@ export const createSpaceAudio = (): SpaceAudioController => {
   ambientTrack.preload = "auto";
   ambientTrack.crossOrigin = "anonymous";
   ambientTrack.volume = 0.42;
+  const nasaJupiterTrack = new Audio("/audio/nasa-jupiter-voyager.mp3");
+  nasaJupiterTrack.loop = true;
+  nasaJupiterTrack.preload = "auto";
+  nasaJupiterTrack.crossOrigin = "anonymous";
+  const nasaSaturnTrack = new Audio("/audio/nasa-saturn-radio.mp3");
+  nasaSaturnTrack.loop = true;
+  nasaSaturnTrack.preload = "auto";
+  nasaSaturnTrack.crossOrigin = "anonymous";
 
   if (!context) {
     return {
@@ -57,6 +65,16 @@ export const createSpaceAudio = (): SpaceAudioController => {
   ambientGain.gain.value = 1.0;
   ambientSource.connect(ambientGain);
   ambientGain.connect(masterGain);
+  const nasaJupiterSource = context.createMediaElementSource(nasaJupiterTrack);
+  const nasaJupiterGain = context.createGain();
+  nasaJupiterGain.gain.value = 0;
+  nasaJupiterSource.connect(nasaJupiterGain);
+  nasaJupiterGain.connect(masterGain);
+  const nasaSaturnSource = context.createMediaElementSource(nasaSaturnTrack);
+  const nasaSaturnGain = context.createGain();
+  nasaSaturnGain.gain.value = 0;
+  nasaSaturnSource.connect(nasaSaturnGain);
+  nasaSaturnGain.connect(masterGain);
 
   // Layer 1: soft warmth (light, not cinematic sub-rumble)
   const subOsc = context.createOscillator();
@@ -105,6 +123,7 @@ export const createSpaceAudio = (): SpaceAudioController => {
   let started = false;
   let oscillatorsStarted = false;
   let ambientStarted = false;
+  let nasaStarted = false;
 
   const MASTER_TARGET = 0.34;
   const eventTypes: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart"];
@@ -125,6 +144,21 @@ export const createSpaceAudio = (): SpaceAudioController => {
     if (!ambientStarted) {
       ambientStarted = true;
       void ambientTrack.play().catch(() => {});
+    }
+    if (!nasaStarted) {
+      nasaStarted = true;
+      void nasaJupiterTrack.play().then(() => {
+        const t = context.currentTime;
+        nasaJupiterGain.gain.cancelScheduledValues(t);
+        nasaJupiterGain.gain.setValueAtTime(0, t);
+        nasaJupiterGain.gain.linearRampToValueAtTime(0.28, t + 4);
+      }).catch(() => {});
+      void nasaSaturnTrack.play().then(() => {
+        const t = context.currentTime;
+        nasaSaturnGain.gain.cancelScheduledValues(t);
+        nasaSaturnGain.gain.setValueAtTime(0, t);
+        nasaSaturnGain.gain.linearRampToValueAtTime(0.12, t + 6);
+      }).catch(() => {});
     }
     masterGain.gain.cancelScheduledValues(now);
     masterGain.gain.setValueAtTime(masterGain.gain.value, now);
@@ -283,6 +317,10 @@ export const createSpaceAudio = (): SpaceAudioController => {
       eventTypes.forEach((type) => window.removeEventListener(type, resume));
       ambientTrack.pause();
       ambientTrack.currentTime = 0;
+      nasaJupiterTrack.pause();
+      nasaJupiterTrack.src = "";
+      nasaSaturnTrack.pause();
+      nasaSaturnTrack.src = "";
       const now = context.currentTime;
       masterGain.gain.cancelScheduledValues(now);
       masterGain.gain.linearRampToValueAtTime(0.0, now + 0.2);
@@ -303,6 +341,10 @@ export const createSpaceAudio = (): SpaceAudioController => {
       shimFilter.disconnect();
       ambientGain.disconnect();
       ambientSource.disconnect();
+      nasaJupiterGain.disconnect();
+      nasaJupiterSource.disconnect();
+      nasaSaturnGain.disconnect();
+      nasaSaturnSource.disconnect();
       masterGain.disconnect();
       void context.close();
     },

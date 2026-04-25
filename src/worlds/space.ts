@@ -1,6 +1,7 @@
 import {
   AdditiveBlending,
   AmbientLight,
+  BackSide,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -10,6 +11,9 @@ import {
   DirectionalLight,
   DoubleSide,
   Group,
+  Line,
+  LineBasicMaterial,
+  LoadingManager,
   Material,
   MathUtils,
   Mesh,
@@ -18,16 +22,18 @@ import {
   PlaneGeometry,
   PointLight,
   Points,
+  RingGeometry,
   ShaderMaterial,
   SphereGeometry,
+  SRGBColorSpace,
+  Texture,
+  TextureLoader,
   TorusGeometry,
   Vector3,
 } from "three";
-import { ImprovedNoise } from "three/examples/jsm/math/ImprovedNoise.js";
 import {
   COMET_INTERVAL_MAX,
   COMET_INTERVAL_MIN,
-  DEFAULT_HEAD_Z_CM,
   HEAD_STILL_DURATION,
   MOON_ORBIT_PERIOD,
   MOON_ORBIT_RADIUS,
@@ -94,43 +100,6 @@ const makeNebulaTexture = (coreColor: string, outerColor: string): CanvasTexture
   return tex;
 };
 
-const makePlanetTexture = (
-  base: [number, number, number],
-  detail: [number, number, number],
-): CanvasTexture => {
-  const SIZE = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = SIZE;
-  canvas.height = SIZE;
-  const ctx = canvas.getContext("2d")!;
-  const imageData = ctx.createImageData(SIZE, SIZE);
-  const noise = new ImprovedNoise();
-  for (let y = 0; y < SIZE; y++) {
-    for (let x = 0; x < SIZE; x++) {
-      const nx = x / SIZE;
-      const ny = y / SIZE;
-      let n = 0;
-      let amp = 1;
-      let freq = 1;
-      for (let o = 0; o < 4; o++) {
-        n += amp * noise.noise(nx * freq * 4, ny * freq * 4, 0.5);
-        amp *= 0.5;
-        freq *= 2;
-      }
-      const t = (n + 1) / 2;
-      const idx = (y * SIZE + x) * 4;
-      imageData.data[idx] = Math.round(base[0] * (1 - t) + detail[0] * t);
-      imageData.data[idx + 1] = Math.round(base[1] * (1 - t) + detail[1] * t);
-      imageData.data[idx + 2] = Math.round(base[2] * (1 - t) + detail[2] * t);
-      imageData.data[idx + 3] = 255;
-    }
-  }
-  ctx.putImageData(imageData, 0, 0);
-  const tex = new CanvasTexture(canvas);
-  tex.needsUpdate = true;
-  return tex;
-};
-
 const makeCometTailTexture = (): CanvasTexture => {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -176,7 +145,7 @@ const createStarGeometry = (count: number, kind: StarKind): BufferGeometry => {
     if (kind === "deep") {
       sizes[i] = r < 0.82 ? rnd(0.45, 1.35) : r < 0.96 ? rnd(1.35, 2.4) : rnd(2.4, 3.1);
     } else if (kind === "shallow") {
-      sizes[i] = r < 0.72 ? rnd(2.1, 4.2) : r < 0.93 ? rnd(4.2, 7.2) : rnd(7.2, 9.5);
+      sizes[i] = r < 0.72 ? rnd(1.2, 2.6) : r < 0.93 ? rnd(2.6, 4.2) : rnd(4.2, 5.6);
     } else {
       sizes[i] = rnd(0.9, 2.8);
     }
@@ -260,16 +229,71 @@ export const createSpaceWorld = (): SceneModule => {
 
   // Scene objects
   let portalRing: Mesh | null = null;
-  let planetNear: Mesh | null = null;
-  let planetFar: Mesh | null = null;
+  let portalRingDepth = 3;
+  let skybox: Mesh | null = null;
+  let jupiter: Mesh | null = null;
+  let saturn: Mesh | null = null;
+  let saturnRing: Mesh | null = null;
+  let mars: Mesh | null = null;
+  let earth: Mesh | null = null;
+  let earthClouds: Mesh | null = null;
   let moon: Mesh | null = null;
+  let moonOrbitLine: Line | null = null;
   let moonOrbitAngle = 0;
   let station: Group | null = null;
-  let rimNear: PointLight | null = null;
-  let rimFar: PointLight | null = null;
+  let jupiterRim: PointLight | null = null;
   let ambient: AmbientLight | null = null;
   let directional: DirectionalLight | null = null;
-  let planetTextures: CanvasTexture[] = [];
+  let nasaTextures: Texture[] = [];
+  let loadingProgress = 0;
+  let perfProbeActive = false;
+  let perfProbePhase: "baseline" | "bloomOff" | "starsOff" | "restore" | "done" = "baseline";
+  let perfProbeElapsed = 0;
+  let perfProbeFrames = 0;
+  let perfProbeDt = 0;
+  let perfProbeBaseline = 0;
+  let perfProbeBloomOff = 0;
+  let perfProbeStarsOff = 0;
+
+  const beginPerfPhase = (phase: typeof perfProbePhase, ctx: AppContext): void => {
+    perfProbePhase = phase;
+    perfProbeElapsed = 0;
+    perfProbeFrames = 0;
+    perfProbeDt = 0;
+    if (phase === "bloomOff") {
+      ctx.setBloom(null);
+      console.log("[space-perf] bloom disabled sample started");
+    } else if (phase === "starsOff") {
+      ctx.setBloom(spaceBloomProfile);
+      if (deepStars) deepStars.visible = false;
+      if (shallowStars) shallowStars.visible = false;
+      if (warmStars) warmStars.visible = false;
+      console.log("[space-perf] stars disabled sample started");
+    } else if (phase === "restore") {
+      if (deepStars) deepStars.visible = true;
+      if (shallowStars) shallowStars.visible = true;
+      if (warmStars) warmStars.visible = true;
+      ctx.setBloom(spaceBloomProfile);
+    }
+  };
+
+  const averageFpsForProbe = (): number => {
+    if (perfProbeDt <= 0 || perfProbeFrames <= 0) return 0;
+    return perfProbeFrames / perfProbeDt;
+  };
+
+  const updatePortalFrameRing = (): void => {
+    if (!sceneCtx || !portalRing) return;
+    const camera = sceneCtx.camera;
+    const ringDistance = portalRingDepth;
+    const halfHeight = Math.tan((MathUtils.degToRad(camera.fov) * 0.5)) * ringDistance;
+    const halfWidth = halfHeight * camera.aspect;
+    const ringRadius = Math.hypot(halfWidth, halfHeight) * 1.01;
+    const tubeRadius = ringRadius * 0.016;
+    portalRing.geometry.dispose();
+    portalRing.geometry = new TorusGeometry(ringRadius, tubeRadius, 20, 96);
+    portalRing.position.set(0, 0, -ringDistance);
+  };
 
   // Warp pool
   let warpPool: Array<{ mesh: Mesh; state: "idle" | "animating"; elapsed: number; duration: number }> = [];
@@ -393,6 +417,7 @@ export const createSpaceWorld = (): SceneModule => {
       arrivalElapsed = 0;
       arrivalSoundPlayed = false;
       moonOrbitAngle = 0;
+      loadingProgress = 0;
       headStillTimer = 0;
       prevHeadX = 0;
       prevHeadY = 0;
@@ -415,15 +440,125 @@ export const createSpaceWorld = (): SceneModule => {
       sceneGroup = new Group();
       ctx.scene.add(sceneGroup);
 
+      // Loader-managed NASA textures (placeholder materials are swapped when fully loaded)
+      const manager = new LoadingManager(
+        () => {
+          loadingProgress = 1;
+          console.log("[space] all texture loads completed");
+        },
+        (_url, loaded, total) => {
+          loadingProgress = total > 0 ? loaded / total : 1;
+        },
+      );
+      manager.onError = (url) => {
+        console.warn("Failed texture load:", url);
+      };
+      const loader = new TextureLoader(manager);
+      const loadTextureWithFallback = (
+        label: string,
+        preferredPath: string,
+        fallbackPath: string,
+        isColorTexture: boolean,
+      ): Texture => {
+        const tex = new Texture();
+        if (isColorTexture) {
+          tex.colorSpace = SRGBColorSpace;
+        }
+        const applyLoadedTexture = (loaded: Texture) => {
+          tex.image = loaded.image;
+          tex.needsUpdate = true;
+        };
+        const tryFallback = () => {
+          loader.load(
+            fallbackPath,
+            (loaded) => {
+              if (isColorTexture) loaded.colorSpace = SRGBColorSpace;
+              applyLoadedTexture(loaded);
+              console.log(`[space] ${label} loaded from fallback: ${fallbackPath}`);
+            },
+            undefined,
+            () => {
+              console.error(
+                `[space] ${label} failed to load from preferred and fallback paths`,
+                { preferredPath, fallbackPath },
+              );
+            },
+          );
+        };
+        loader.load(
+          preferredPath,
+          (loaded) => {
+            if (isColorTexture) loaded.colorSpace = SRGBColorSpace;
+            applyLoadedTexture(loaded);
+            console.log(`[space] ${label} loaded: ${preferredPath}`);
+          },
+          undefined,
+          () => {
+            console.warn(`[space] ${label} preferred path failed, trying fallback`, {
+              preferredPath,
+              fallbackPath,
+            });
+            tryFallback();
+          },
+        );
+        nasaTextures.push(tex);
+        return tex;
+      };
+
+      const loadColorTexture = (label: string, name: string): Texture =>
+        loadTextureWithFallback(
+          label,
+          `/assets/textures/${name}`,
+          `/textures/${name}`,
+          true,
+        );
+      const loadDataTexture = (label: string, name: string): Texture =>
+        loadTextureWithFallback(
+          label,
+          `/assets/textures/${name}`,
+          `/textures/${name}`,
+          false,
+        );
+
+      const skyTexture = loadColorTexture("skybox", "2k_stars_milky_way.jpg");
+      const jupiterTexture = loadColorTexture("jupiter", "2k_jupiter.jpg");
+      const saturnTexture = loadColorTexture("saturn", "2k_saturn.jpg");
+      const ringTexture = loadDataTexture("saturnRing", "2k_saturn_ring_alpha.png");
+      const marsTexture = loadColorTexture("mars", "2k_mars.jpg");
+      const marsBump = loadDataTexture("marsBump", "marsbump1k.jpg");
+      const moonTexture = loadColorTexture("moon", "2k_moon.jpg");
+      const moonBump = loadDataTexture("moonBump", "moonbump1k.jpg");
+      const earthDayTexture = loadColorTexture("earthDay", "2k_earth_daymap.jpg");
+      const earthNightTexture = loadColorTexture("earthNight", "2k_earth_nightmap.jpg");
+      const earthBump = loadDataTexture("earthBump", "earthbump1k.jpg");
+      const cloudTexture = loadTextureWithFallback(
+        "earthClouds",
+        "/assets/textures/2k_earth_clouds.png",
+        "/textures/2k_earth_clouds.jpg",
+        false,
+      );
+
       // Lights
-      ambient = new AmbientLight(0xb9c7ff, 0.22);
-      directional = new DirectionalLight(0x9fc4ff, 1.15);
-      directional.position.set(24, 18, 30);
-      rimNear = new PointLight(0xff7733, 1.5, 60);
-      rimNear.position.set(-45, 5, -70);
-      rimFar = new PointLight(0x33ffee, 1.2, 90);
-      rimFar.position.set(65, -20, -230);
-      sceneGroup.add(ambient, directional, rimNear, rimFar);
+      directional = new DirectionalLight(0xfff5e0, 1.8);
+      directional.position.set(80, 40, 60);
+      jupiterRim = new PointLight(0xff8833, 2.0, 45);
+      jupiterRim.position.set(-40, 10, -70);
+      sceneGroup.add(directional, jupiterRim);
+      ambient = new AmbientLight(0x111122, 0.4);
+      ctx.scene.add(ambient);
+
+      // Milky Way sky sphere sits in scene root, not the rotating sceneGroup.
+      skybox = new Mesh(
+        new SphereGeometry(900, 32, 32),
+        new MeshBasicMaterial({
+          color: 0x000000,
+          map: skyTexture,
+          side: BackSide,
+          depthWrite: false,
+        }),
+      );
+      skybox.renderOrder = -1;
+      ctx.scene.add(skybox);
 
       // Stars
       deepStars = new Points(
@@ -497,66 +632,143 @@ export const createSpaceWorld = (): SceneModule => {
         }
       }
 
-      // Portal ring
-      const ringZ = -10;
-      const ringDepth = DEFAULT_HEAD_Z_CM - ringZ;
-      const halfW = SCREEN_DIMENSIONS_CM.width / 2;
-      const halfH = SCREEN_DIMENSIONS_CM.height / 2;
-      const ringRadius = Math.hypot(
-        (halfW * ringDepth) / DEFAULT_HEAD_Z_CM,
-        (halfH * ringDepth) / DEFAULT_HEAD_Z_CM,
-      );
+      // Portal ring as camera-edge frame (not a world prop).
       portalRing = new Mesh(
-        new TorusGeometry(ringRadius, 1.8, 24, 120),
+        new TorusGeometry(1, 0.02, 20, 96),
         new MeshStandardMaterial({
           color: 0x6fa8ff,
           emissive: 0x1f59d9,
-          emissiveIntensity: 4.0,
+          emissiveIntensity: 0.15,
           roughness: 0.35,
           metalness: 0.22,
+          depthTest: false,
+          depthWrite: false,
         }),
       );
-      portalRing.position.set(0, 0, ringZ);
-      sceneGroup.add(portalRing);
+      portalRing.renderOrder = 95;
+      ctx.camera.add(portalRing);
+      updatePortalFrameRing();
 
-      // Planets — −30% size, procedural texture
-      const nearTex = makePlanetTexture([180, 110, 60], [120, 60, 20]);
-      const farTex = makePlanetTexture([50, 130, 180], [20, 60, 100]);
-      planetTextures = [nearTex, farTex];
-
-      planetNear = new Mesh(
-        new SphereGeometry(8.6, 40, 40),
+      // Planets (placeholder materials first, texture maps are attached by loader result).
+      jupiter = new Mesh(
+        new SphereGeometry(11, 64, 64),
         new MeshStandardMaterial({
-          map: nearTex,
-          color: 0xd4783c,
-          emissive: 0x3a1000,
-          roughness: 0.78,
-          metalness: 0.06,
+          color: 0x73624c,
+          roughness: 0.85,
+          metalness: 0.0,
+          map: jupiterTexture,
         }),
       );
-      planetNear.position.set(-18, 11, SPACE_WORLD_CONFIG.planetNearZ);
+      jupiter.position.set(-22, 8, -85);
 
-      planetFar = new Mesh(
-        new SphereGeometry(6.0, 40, 40),
+      saturn = new Mesh(
+        new SphereGeometry(8.5, 64, 64),
         new MeshStandardMaterial({
-          map: farTex,
-          color: 0x3a9fc8,
-          emissive: 0x0a2535,
-          roughness: 0.72,
-          metalness: 0.12,
+          color: 0x9f8f73,
+          roughness: 0.8,
+          metalness: 0.0,
+          map: saturnTexture,
         }),
       );
-      planetFar.position.set(24, -8, SPACE_WORLD_CONFIG.planetFarZ);
-      sceneGroup.add(planetNear, planetFar);
+      saturn.position.set(48, -12, -190);
+      saturn.rotation.z = 0.47;
 
-      // Moon
-      const moonTex = makePlanetTexture([130, 120, 110], [80, 75, 70]);
-      planetTextures.push(moonTex);
+      const ringInnerRadius = 8.5 * 1.35;
+      const ringOuterRadius = 8.5 * 2.5;
+      const ringGeo = new RingGeometry(ringInnerRadius, ringOuterRadius, 128);
+      const ringPos = ringGeo.attributes.position;
+      const ringUV = ringGeo.attributes.uv;
+      const ringVec = new Vector3();
+      for (let i = 0; i < ringPos.count; i++) {
+        ringVec.fromBufferAttribute(ringPos, i);
+        const normalised = (ringVec.length() - ringInnerRadius) / (ringOuterRadius - ringInnerRadius);
+        ringUV.setXY(i, normalised, 0.5);
+      }
+      ringGeo.attributes.uv.needsUpdate = true;
+      saturnRing = new Mesh(
+        ringGeo,
+        new MeshBasicMaterial({
+          map: ringTexture,
+          side: DoubleSide,
+          transparent: true,
+          depthWrite: false,
+          opacity: 0.88,
+          blending: AdditiveBlending,
+        }),
+      );
+      saturnRing.rotation.x = Math.PI * 0.42;
+      saturn.add(saturnRing);
+
+      mars = new Mesh(
+        new SphereGeometry(4.5, 48, 48),
+        new MeshStandardMaterial({
+          color: 0x7f4e33,
+          roughness: 0.95,
+          metalness: 0.0,
+          map: marsTexture,
+          bumpMap: marsBump,
+          bumpScale: 0.9,
+        }),
+      );
+      mars.position.set(-65, 25, -260);
+
+      earth = new Mesh(
+        new SphereGeometry(3.5, 48, 48),
+        new MeshStandardMaterial({
+          color: 0x4a6b8a,
+          map: earthDayTexture,
+          roughness: 0.7,
+          metalness: 0.05,
+          bumpMap: earthBump,
+          bumpScale: 0.4,
+          emissive: new Color(0xffaa44),
+          emissiveIntensity: 0.6,
+          emissiveMap: earthNightTexture,
+        }),
+      );
+      earth.position.set(30, 35, -340);
+      earthClouds = new Mesh(
+        new SphereGeometry(3.62, 48, 48),
+        new MeshStandardMaterial({
+          map: cloudTexture,
+          transparent: true,
+          opacity: 0.7,
+          depthWrite: false,
+          roughness: 0.9,
+          metalness: 0.0,
+        }),
+      );
+      earth.add(earthClouds);
+
       moon = new Mesh(
-        new SphereGeometry(1.6, 20, 20),
-        new MeshStandardMaterial({ map: moonTex, roughness: 0.9, metalness: 0.0 }),
+        new SphereGeometry(1.8, 32, 32),
+        new MeshStandardMaterial({
+          map: moonTexture,
+          roughness: 0.95,
+          metalness: 0.0,
+          bumpMap: moonBump,
+          bumpScale: 0.6,
+        }),
       );
-      sceneGroup.add(moon);
+
+      const orbitPoints: Vector3[] = [];
+      const moonTilt = Math.PI / 10;
+      for (let i = 0; i <= 128; i++) {
+        const angle = (i / 128) * Math.PI * 2;
+        orbitPoints.push(
+          new Vector3(
+            jupiter.position.x + Math.cos(angle) * MOON_ORBIT_RADIUS,
+            jupiter.position.y + Math.sin(angle) * Math.sin(moonTilt) * MOON_ORBIT_RADIUS,
+            jupiter.position.z + Math.sin(angle) * Math.cos(moonTilt) * MOON_ORBIT_RADIUS,
+          ),
+        );
+      }
+      moonOrbitLine = new Line(
+        new BufferGeometry().setFromPoints(orbitPoints),
+        new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.07 }),
+      );
+
+      sceneGroup.add(jupiter, saturn, mars, earth, moon, moonOrbitLine);
 
       // Derelict station
       station = createStation();
@@ -757,20 +969,25 @@ export const createSpaceWorld = (): SceneModule => {
       if (shallowStars) shallowStars.rotation.z -= dt * 0.004;
 
       // ── Planets ─────────────────────────────────────────────────────────────
-      if (planetNear) planetNear.rotation.y += dt * 0.18;
-      if (planetFar) planetFar.rotation.y += dt * 0.07;
+      if (jupiter) jupiter.rotation.y += dt * 0.04;
+      if (saturn) saturn.rotation.y += dt * 0.025;
+      if (mars) mars.rotation.y += dt * 0.018;
+      if (earth) earth.rotation.y += dt * 0.012;
+      if (earthClouds) earthClouds.rotation.y += dt * 0.016;
 
       // ── Moon orbit ──────────────────────────────────────────────────────────
-      if (moon && planetNear) {
+      if (moon && jupiter) {
         moonOrbitAngle += (Math.PI * 2 / MOON_ORBIT_PERIOD) * dt;
+        const moonTilt = Math.PI / 10;
         const mx = Math.cos(moonOrbitAngle) * MOON_ORBIT_RADIUS;
-        const mz = Math.sin(moonOrbitAngle) * MOON_ORBIT_RADIUS;
-        const my = Math.sin(moonOrbitAngle) * Math.sin(Math.PI / 12) * MOON_ORBIT_RADIUS;
+        const mz = Math.sin(moonOrbitAngle) * Math.cos(moonTilt) * MOON_ORBIT_RADIUS;
+        const my = Math.sin(moonOrbitAngle) * Math.sin(moonTilt) * MOON_ORBIT_RADIUS;
         moon.position.set(
-          planetNear.position.x + mx,
-          planetNear.position.y + my,
-          planetNear.position.z + mz,
+          jupiter.position.x + mx,
+          jupiter.position.y + my,
+          jupiter.position.z + mz,
         );
+        moon.rotation.y += dt * 0.01;
       }
 
       // ── Station rotation ─────────────────────────────────────────────────
@@ -791,10 +1008,48 @@ export const createSpaceWorld = (): SceneModule => {
 
       // ── Portal ring pulse ────────────────────────────────────────────────
       if (portalRing) {
-        const baseIntensity = ringFlashTimer > 0 ? MathUtils.lerp(12, 4.0, 1 - ringFlashTimer / 0.5) : 4.0;
+        const baseIntensity =
+          ringFlashTimer > 0 ? MathUtils.lerp(0.35, 0.15, 1 - ringFlashTimer / 0.5) : 0.15;
         if (ringFlashTimer > 0) ringFlashTimer = Math.max(0, ringFlashTimer - dt);
         (portalRing.material as MeshStandardMaterial).emissiveIntensity =
-          baseIntensity + 1.8 * Math.sin(time * 0.9);
+          baseIntensity + 0.03 * Math.sin(time * 0.9);
+      }
+
+      if (!perfProbeActive) {
+        perfProbeActive = true;
+        beginPerfPhase("baseline", sceneCtx);
+        console.log("[space-perf] baseline sample started");
+      }
+      if (perfProbePhase !== "done") {
+        perfProbeElapsed += dt;
+        perfProbeDt += dt;
+        perfProbeFrames += 1;
+        if (perfProbeElapsed >= 2.5) {
+          const fps = averageFpsForProbe();
+          if (perfProbePhase === "baseline") {
+            perfProbeBaseline = fps;
+            console.log(`[space-perf] baseline fps: ${fps.toFixed(2)}`);
+            beginPerfPhase("bloomOff", sceneCtx);
+          } else if (perfProbePhase === "bloomOff") {
+            perfProbeBloomOff = fps;
+            console.log(`[space-perf] bloom-off fps: ${fps.toFixed(2)}`);
+            beginPerfPhase("starsOff", sceneCtx);
+          } else if (perfProbePhase === "starsOff") {
+            perfProbeStarsOff = fps;
+            console.log(`[space-perf] stars-off fps: ${fps.toFixed(2)}`);
+            beginPerfPhase("restore", sceneCtx);
+            const bloomGain = perfProbeBloomOff - perfProbeBaseline;
+            const starGain = perfProbeStarsOff - perfProbeBaseline;
+            const dominant = bloomGain > starGain ? "bloom" : "stars";
+            console.log(
+              `[space-perf] dominant cost appears to be ${dominant} ` +
+              `(bloom gain ${bloomGain.toFixed(2)} fps, stars gain ${starGain.toFixed(2)} fps)`,
+            );
+          } else if (perfProbePhase === "restore") {
+            perfProbePhase = "done";
+            console.log("[space-perf] sampling complete, visual settings restored");
+          }
+        }
       }
 
       // ── Warp pool ────────────────────────────────────────────────────────
@@ -945,7 +1200,9 @@ export const createSpaceWorld = (): SceneModule => {
       }
     },
 
-    resize(_size: ViewportSize) {},
+    resize(_size: ViewportSize) {
+      updatePortalFrameRing();
+    },
 
     dispose() {
       if (!sceneCtx) return;
@@ -985,9 +1242,9 @@ export const createSpaceWorld = (): SceneModule => {
       nebulaTextures = [];
       nebulaBaseOpacities = [];
 
-      // Planet textures
-      planetTextures.forEach((t) => t.dispose());
-      planetTextures = [];
+      // NASA textures
+      nasaTextures.forEach((t) => t.dispose());
+      nasaTextures = [];
 
       // Warp pool
       warpPool.forEach((e) => {
@@ -1001,26 +1258,62 @@ export const createSpaceWorld = (): SceneModule => {
       if (portalRing) {
         portalRing.geometry.dispose();
         (portalRing.material as MeshStandardMaterial).dispose();
-        sceneGroup?.remove(portalRing);
+        sceneCtx.camera.remove(portalRing);
         portalRing = null;
       }
-      if (planetNear) {
-        planetNear.geometry.dispose();
-        (planetNear.material as MeshStandardMaterial).dispose();
-        sceneGroup?.remove(planetNear);
-        planetNear = null;
+      if (skybox) {
+        skybox.geometry.dispose();
+        (skybox.material as MeshBasicMaterial).dispose();
+        sceneCtx.scene.remove(skybox);
+        skybox = null;
       }
-      if (planetFar) {
-        planetFar.geometry.dispose();
-        (planetFar.material as MeshStandardMaterial).dispose();
-        sceneGroup?.remove(planetFar);
-        planetFar = null;
+      if (jupiter) {
+        jupiter.geometry.dispose();
+        (jupiter.material as MeshStandardMaterial).dispose();
+        sceneGroup?.remove(jupiter);
+        jupiter = null;
+      }
+      if (saturnRing) {
+        saturnRing.geometry.dispose();
+        (saturnRing.material as MeshBasicMaterial).dispose();
+        saturn?.remove(saturnRing);
+        saturnRing = null;
+      }
+      if (saturn) {
+        saturn.geometry.dispose();
+        (saturn.material as MeshStandardMaterial).dispose();
+        sceneGroup?.remove(saturn);
+        saturn = null;
+      }
+      if (mars) {
+        mars.geometry.dispose();
+        (mars.material as MeshStandardMaterial).dispose();
+        sceneGroup?.remove(mars);
+        mars = null;
+      }
+      if (earthClouds) {
+        earthClouds.geometry.dispose();
+        (earthClouds.material as MeshStandardMaterial).dispose();
+        earth?.remove(earthClouds);
+        earthClouds = null;
+      }
+      if (earth) {
+        earth.geometry.dispose();
+        (earth.material as MeshStandardMaterial).dispose();
+        sceneGroup?.remove(earth);
+        earth = null;
       }
       if (moon) {
         moon.geometry.dispose();
         (moon.material as MeshStandardMaterial).dispose();
         sceneGroup?.remove(moon);
         moon = null;
+      }
+      if (moonOrbitLine) {
+        moonOrbitLine.geometry.dispose();
+        (moonOrbitLine.material as LineBasicMaterial).dispose();
+        sceneGroup?.remove(moonOrbitLine);
+        moonOrbitLine = null;
       }
 
       disposeGroup(station);
@@ -1047,10 +1340,9 @@ export const createSpaceWorld = (): SceneModule => {
       }
 
       // Lights
-      if (ambient) { sceneGroup?.remove(ambient); ambient = null; }
+      if (ambient) { sceneCtx.scene.remove(ambient); ambient = null; }
       if (directional) { sceneGroup?.remove(directional); directional = null; }
-      if (rimNear) { sceneGroup?.remove(rimNear); rimNear = null; }
-      if (rimFar) { sceneGroup?.remove(rimFar); rimFar = null; }
+      if (jupiterRim) { sceneGroup?.remove(jupiterRim); jupiterRim = null; }
 
       // Remove sceneGroup
       if (sceneGroup) {

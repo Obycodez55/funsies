@@ -7,7 +7,7 @@ export const noBloomProfile: BloomProfile = {
 };
 
 export const spaceBloomProfile: BloomProfile = {
-  strength: 0.95,
-  radius: 0.65,
-  threshold: 0.3,
+  strength: 0.72,
+  radius: 0.5,
+  threshold: 0.62,
 };
