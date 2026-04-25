@@ -248,14 +248,6 @@ export const createSpaceWorld = (): SceneModule => {
   // Scene group (all world objects, rotated by drag pan)
   let sceneGroup: Group | null = null;
 
-  // Drag/inertia state
-  let panRotation = { y: 0 };
-  let dragVelocity = { y: 0 };
-  let isDragging = false;
-  let lastPointer = { x: 0, y: 0 };
-  const PAN_MAX_Y = Math.PI / 3;
-  const DRAG_SENSITIVITY = 0.006;
-
   // Stars
   let deepStars: Points | null = null;
   let shallowStars: Points | null = null;
@@ -325,26 +317,6 @@ export const createSpaceWorld = (): SceneModule => {
   let arrivalOverlay: Mesh | null = null;
   let arrivalWarpMeshes: Mesh[] = [];
   let arrivalSoundPlayed = false;
-
-  // ─── Pointer handlers ──────────────────────────────────────────────────────
-
-  const onPointerDown = (e: PointerEvent): void => {
-    if (arrivalPhase !== "done") return;
-    isDragging = true;
-    lastPointer.x = e.clientX;
-    lastPointer.y = e.clientY;
-  };
-  const onPointerMove = (e: PointerEvent): void => {
-    if (!isDragging) return;
-    const dx = e.clientX - lastPointer.x;
-    lastPointer.x = e.clientX;
-    lastPointer.y = e.clientY;
-    dragVelocity.y = dx * DRAG_SENSITIVITY;
-    panRotation.y = MathUtils.clamp(panRotation.y + dragVelocity.y, -PAN_MAX_Y, PAN_MAX_Y);
-  };
-  const onPointerUp = (): void => {
-    isDragging = false;
-  };
 
   // ─── Comet spawn ───────────────────────────────────────────────────────────
 
@@ -420,8 +392,6 @@ export const createSpaceWorld = (): SceneModule => {
       arrivalPhase = "warp";
       arrivalElapsed = 0;
       arrivalSoundPlayed = false;
-      panRotation = { y: 0 };
-      dragVelocity = { y: 0 };
       moonOrbitAngle = 0;
       headStillTimer = 0;
       prevHeadX = 0;
@@ -701,12 +671,6 @@ export const createSpaceWorld = (): SceneModule => {
       (shallowStars.material as ShaderMaterial).uniforms.uOpacityScale.value = 0;
       (warmStars.material as ShaderMaterial).uniforms.uOpacityScale.value = 0;
 
-      // Pointer events
-      const el = ctx.renderer.domElement;
-      el.addEventListener("pointerdown", onPointerDown);
-      el.addEventListener("pointermove", onPointerMove);
-      el.addEventListener("pointerup", onPointerUp);
-      el.addEventListener("pointercancel", onPointerUp);
     },
 
     update(dt: number, frameState: FrameState) {
@@ -784,15 +748,6 @@ export const createSpaceWorld = (): SceneModule => {
           return;
         }
       }
-
-      // ── Drag/inertia ────────────────────────────────────────────────────────
-      if (!isDragging) {
-        const decay = Math.exp(-3.5 * dt);
-        dragVelocity.y *= decay;
-        panRotation.y = MathUtils.clamp(panRotation.y + dragVelocity.y, -PAN_MAX_Y, PAN_MAX_Y);
-      }
-      sceneGroup.rotation.x = 0;
-      sceneGroup.rotation.y = panRotation.y;
 
       // ── Stars ───────────────────────────────────────────────────────────────
       if (deepStars) (deepStars.material as ShaderMaterial).uniforms.uTime.value = time;
@@ -994,13 +949,6 @@ export const createSpaceWorld = (): SceneModule => {
 
     dispose() {
       if (!sceneCtx) return;
-
-      // Remove pointer listeners
-      const el = sceneCtx.renderer.domElement;
-      el.removeEventListener("pointerdown", onPointerDown);
-      el.removeEventListener("pointermove", onPointerMove);
-      el.removeEventListener("pointerup", onPointerUp);
-      el.removeEventListener("pointercancel", onPointerUp);
 
       // Arrival overlay
       if (arrivalOverlay) {
