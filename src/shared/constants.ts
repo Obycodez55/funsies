@@ -12,24 +12,24 @@ export const DEFAULT_MODE: AppMode = APP_MODE.SPACE;
 export const TRACKER_SMOOTHING_ALPHA = 0.14;
 export const TRACKER_TARGET_FPS = 45;
 export const TRACKER_BASELINE_EYE_ALPHA = 0.04;
-export const TRACKER_DEPTH_RESPONSE_GAIN = 520;
+export const TRACKER_DEPTH_RESPONSE_GAIN = 820;
 export const MIN_HEAD_Z_CM = 25;
 export const MAX_HEAD_Z_CM = 140;
 export const DEFAULT_HEAD_Z_CM = 60;
-export const HEAD_X_RANGE = 40;
-export const HEAD_Y_RANGE = 30;
-export const HEAD_DEADZONE_X = 1.8;
-export const HEAD_DEADZONE_Y = 1.4;
-export const HEAD_DEADZONE_Z = 2.2;
+export const HEAD_X_RANGE = 8;
+export const HEAD_Y_RANGE = 5;
+export const HEAD_DEADZONE_X = 1.1;
+export const HEAD_DEADZONE_Y = 0.9;
+export const HEAD_DEADZONE_Z = 0.8;
 
 export const MOTION_TUNING = {
   // Mirror-style behavior is often intuitive for users; keep configurable per experience.
   invertX: true,
   invertY: false,
   invertZ: true,
-  sensitivityX: 0.45,
-  sensitivityY: 0.4,
-  sensitivityZ: 0.35,
+  sensitivityX: 0.08,
+  sensitivityY: 0.08,
+  sensitivityZ: 0.05,
 } as const;
 
 export const SCREEN_DIMENSIONS_CM: ScreenDimensionsCm = {

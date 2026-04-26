@@ -50,7 +50,6 @@ export const createRendererRuntime = (container: HTMLElement): RendererRuntime =
     size.dpr = dpr;
 
     camera.aspect = width / Math.max(height, 1);
-    camera.updateProjectionMatrix();
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
     composer.setPixelRatio(dpr);

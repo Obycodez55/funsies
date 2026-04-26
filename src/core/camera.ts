@@ -21,11 +21,6 @@ interface MotionTuning {
   sensitivityZ: number;
 }
 
-// Pre-allocated vectors — reused every frame to avoid GC pressure.
-const _right = new Vector3();
-const _up = new Vector3();
-const _fwd = new Vector3();
-
 const applyDeadzone = (value: number, deadzone: number): number => {
   if (Math.abs(value) <= deadzone) return 0;
   return value > 0 ? value - deadzone : value + deadzone;
@@ -46,8 +41,8 @@ const applyDeadzone = (value: number, deadzone: number): number => {
  */
 export const updateCamera = (
   camera: PerspectiveCamera,
-  orbitPosition: Vector3,
-  orbitTarget: Vector3,
+  _orbitPosition: Vector3,
+  _orbitTarget: Vector3,
   headPosition: HeadPose | null,
   screenDimensions: ScreenDimensionsCm,
   nearPlane: number,
@@ -82,28 +77,8 @@ export const updateCamera = (
   const tunedDelta = applyDeadzone(tunedDeltaRaw, HEAD_DEADZONE_Z);
   const headZ = clamp(DEFAULT_HEAD_Z_CM + tunedDelta, MIN_HEAD_Z_CM, MAX_HEAD_Z_CM);
 
-  // Extract the camera's local right / up axes from its current orientation.
-  // The orbit controller has already called camera.lookAt(target), so the
-  // quaternion is set correctly. We use it directly rather than matrixWorld
-  // to avoid a redundant updateMatrixWorld call here.
-  _right.set(1, 0, 0).applyQuaternion(camera.quaternion);
-  _up.set(0, 1, 0).applyQuaternion(camera.quaternion);
-  _fwd.set(0, 0, 1).applyQuaternion(camera.quaternion); // camera +Z = world "behind" camera
-
-  // Apply head x/y delta in camera-local space on top of the orbit base position.
-  // This creates genuine parallax: near objects shift more than far ones because
-  // the camera has actually translated, while the frustum asymmetry keeps the
-  // physical screen aligned as the "window frame".
-  camera.position
-    .copy(orbitPosition)
-    .addScaledVector(_right, x)
-    .addScaledVector(_up, y);
-
-  // Re-orient toward orbit target from the slightly-shifted position.
-  // For small head offsets the angular difference is negligible (<1°),
-  // but this keeps the camera precisely aimed.
-  camera.lookAt(orbitTarget);
-  camera.updateMatrixWorld();
+  // Head tracking must not touch camera world transform.
+  // Orbit/dolly owns camera position + orientation. We only shift frustum planes.
 
   // Off-axis frustum — computed from the head's physical position relative to
   // the screen plane. headZ is the eye-to-screen distance in scene units (≈ cm).
